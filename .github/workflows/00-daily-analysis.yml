@@ -449,6 +449,20 @@ jobs:
           # 可选值: tencent, akshare_sina, efinance, akshare_em, tickflow, tushare
           # 如果有 TickFlow 或 Tushare Pro，可按权限把 tickflow / tushare 放在更靠前位置
           REALTIME_SOURCE_PRIORITY: ${{ vars.REALTIME_SOURCE_PRIORITY || 'tencent,akshare_sina,efinance,akshare_em' }}
+
+          # ==========================================
+          # 【fork 自定义】策略与 Agent 编排
+          # 原工作流未透传这些变量，导致在 Variables 里设了也不生效。
+          # 改动仅限本段，上游若改同处需手工解冲突。
+          # ==========================================
+          AGENT_SKILLS: ${{ vars.AGENT_SKILLS || secrets.AGENT_SKILLS }}
+          AGENT_SKILL_ROUTING: ${{ vars.AGENT_SKILL_ROUTING || secrets.AGENT_SKILL_ROUTING }}
+          AGENT_SKILL_DIR: ${{ vars.AGENT_SKILL_DIR || secrets.AGENT_SKILL_DIR }}
+          AGENT_ARCH: ${{ vars.AGENT_ARCH || secrets.AGENT_ARCH }}
+          AGENT_ORCHESTRATOR_MODE: ${{ vars.AGENT_ORCHESTRATOR_MODE || secrets.AGENT_ORCHESTRATOR_MODE }}
+          AGENT_MODE: ${{ vars.AGENT_MODE || secrets.AGENT_MODE }}
+          AGENT_MEMORY_ENABLED: ${{ vars.AGENT_MEMORY_ENABLED || secrets.AGENT_MEMORY_ENABLED }}
+          AGENT_SKILL_AUTOWEIGHT: ${{ vars.AGENT_SKILL_AUTOWEIGHT || secrets.AGENT_SKILL_AUTOWEIGHT }}
           
         run: |
           # 解析自选股配置：
