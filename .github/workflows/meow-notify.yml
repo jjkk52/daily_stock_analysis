@@ -1,0 +1,44 @@
+# MeoW（喵提醒）推送
+# 设计说明：不改动上游 00-daily-analysis.yml，用 workflow_run 挂在它后面跑，
+# 这样以后从上游同步（Sync fork）不会产生冲突。
+name: MeoW 推送
+
+on:
+  workflow_run:
+    workflows: ["每日股票分析"]
+    types: [completed]
+
+permissions:
+  actions: read
+  contents: read
+
+concurrency:
+  group: meow-notify-${{ github.event.workflow_run.id }}
+  cancel-in-progress: false
+
+jobs:
+  push:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: 下载分析产物
+        uses: actions/download-artifact@v4
+        with:
+          run-id: ${{ github.event.workflow_run.id }}
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          path: artifacts
+
+      - name: 检出推送脚本
+        uses: actions/checkout@v5
+        with:
+          sparse-checkout: .github/meow_push.py
+          sparse-checkout-cone-mode: false
+
+      - name: 推送到 MeoW
+        env:
+          MEOW_NICKNAME: ${{ secrets.MEOW_NICKNAME }}
+          MEOW_BASE_URL: ${{ vars.MEOW_BASE_URL || 'https://api.chuckfang.com' }}
+          MEOW_MAX_CHARS: ${{ vars.MEOW_MAX_CHARS || '1800' }}
+          RUN_CONCLUSION: ${{ github.event.workflow_run.conclusion }}
+          RUN_URL: ${{ github.event.workflow_run.html_url }}
+        run: python3 .github/meow_push.py
