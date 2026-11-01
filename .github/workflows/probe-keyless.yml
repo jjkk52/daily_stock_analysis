@@ -1,0 +1,65 @@
+# 免 Key 网关探针（手动触发，仅用于选型，日常不跑）
+# 从 GitHub runner 真实网络环境测试各匿名端点，输出 HTTP 码与响应片段。
+name: 免Key网关探针
+
+on:
+  workflow_dispatch:
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: 探测各端点
+        run: |
+          set +e
+          probe() {
+            local label="$1" url="$2" auth="$3" body="$4"
+            echo "=================================================="
+            echo "## $label"
+            if [ -n "$auth" ]; then
+              resp=$(curl -sS -m 40 -w '\n__HTTP__%{http_code}' -X POST "$url" \
+                -H "Content-Type: application/json" -H "Authorization: Bearer $auth" -d "$body" 2>&1)
+            else
+              resp=$(curl -sS -m 40 -w '\n__HTTP__%{http_code}' -X POST "$url" \
+                -H "Content-Type: application/json" -d "$body" 2>&1)
+            fi
+            echo "$resp" | tail -1
+            echo "$resp" | sed '$d' | head -c 400
+            echo
+          }
+
+          BODY='{"model":"MODEL","messages":[{"role":"user","content":"只输出JSON: {\"ok\":true}"}],"max_tokens":300}'
+
+          probe "OVHcloud 匿名 (Qwen3.8-27B, 无auth)" \
+            "https://oai.endpoints.kepler.ai.cloud.ovh.net/v1/chat/completions" "" \
+            "${BODY/MODEL/Qwen3.8-27B}"
+
+          probe "OVHcloud 匿名 (gpt-oss-120b, 无auth)" \
+            "https://oai.endpoints.kepler.ai.cloud.ovh.net/v1/chat/completions" "" \
+            "${BODY/MODEL/gpt-oss-120b}"
+
+          probe "VLM Run 匿名 (qwen3.8-27b, 无auth)" \
+            "https://gateway.vlm.run/v1/openai/chat/completions" "" \
+            "${BODY/MODEL/qwen\/qwen3.8-27b}"
+
+          probe "Kilo (kilo-auto/free, 无auth)" \
+            "https://api.kilo.ai/api/gateway/v1/chat/completions" "" \
+            "${BODY/MODEL/kilo-auto\/free}"
+
+          probe "Kilo (kilo-auto/free, 带占位key)" \
+            "https://api.kilo.ai/api/gateway/v1/chat/completions" "sk-no-key" \
+            "${BODY/MODEL/kilo-auto\/free}"
+
+          probe "llm7 (gpt-oss:20b, 无auth)" \
+            "https://api.llm7.io/v1/chat/completions" "" \
+            "${BODY/MODEL/gpt-oss:20b}"
+
+      - name: 列出 OVH 模型
+        run: |
+          echo "=== OVH /v1/models ==="
+          curl -sS -m 30 https://oai.endpoints.kepler.ai.cloud.ovh.net/v1/models | head -c 600
+          echo
+          echo "=== VLM Run /v1/openai/models ==="
+          curl -sS -m 30 https://gateway.vlm.run/v1/openai/models | head -c 600
+          echo
