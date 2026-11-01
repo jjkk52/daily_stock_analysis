@@ -1,0 +1,81 @@
+# 同步上游
+# 每周一自动把 ZhuLinsen/daily_stock_analysis 的新提交合并进本 fork。
+# 合并失败（冲突）时通过 MeoW 告警，不会静默失败。
+# 设计：只调用 GitHub 的 merge-upstream API，不落本地 git 操作。
+name: 同步上游
+
+on:
+  schedule:
+    - cron: '0 2 * * 1'   # 每周一 UTC 02:00 = 北京时间 10:00
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  actions: write
+
+concurrency:
+  group: sync-upstream
+  cancel-in-progress: false
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: 检出告警脚本
+        uses: actions/checkout@v5
+        with:
+          sparse-checkout: .github/meow_alert.py
+          sparse-checkout-cone-mode: false
+
+      - name: 合并上游
+        id: merge
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set +e
+          out=$(gh api -X POST "repos/${{ github.repository }}/merge-upstream" -f branch=main 2>&1)
+          rc=$?
+          echo "--- 上游返回 (rc=$rc) ---"
+          echo "$out"
+          if [ $rc -ne 0 ]; then
+            echo "state=conflict" >> "$GITHUB_OUTPUT"
+            printf '%s\n' "$out" > merge_error.txt
+          elif printf '%s' "$out" | grep -q 'Successfully'; then
+            echo "state=updated" >> "$GITHUB_OUTPUT"
+          else
+            echo "state=uptodate" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: 启用被上游新带入的工作流
+        if: steps.merge.outputs.state == 'updated'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          # fork 里新增的工作流默认不注册，这里统一启用一次
+          gh api "repos/${{ github.repository }}/actions/workflows" \
+            -q '.workflows[] | select(.state != "active") | "\(.id) \(.path)"' \
+          | while read -r id path; do
+              [ -z "$id" ] && continue
+              echo "启用 $id $path"
+              gh api -X PUT "repos/${{ github.repository }}/actions/workflows/$id/enable" || true
+            done
+
+      - name: 冲突时推送 MeoW 告警
+        if: steps.merge.outputs.state == 'conflict'
+        env:
+          MEOW_NICKNAME: ${{ secrets.MEOW_NICKNAME }}
+          MEOW_TITLE: "⚠️ 上游同步冲突，需手工处理"
+        run: |
+          {
+            head -c 700 merge_error.txt
+            echo
+            echo "仓库: ${{ github.server_url }}/${{ github.repository }}"
+            echo "手动处理: gh repo sync ${{ github.repository }} --branch main"
+          } > meow_msg.txt
+          MEOW_MESSAGE="$(cat meow_msg.txt)" python3 .github/meow_alert.py
+
+      - name: 汇总
+        if: always()
+        run: |
+          echo "同步结果: ${{ steps.merge.outputs.state }}"
